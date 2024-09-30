@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+    <title>Управление дроном</title>
+    <style>
+      #log {
+        width: 100%;
+        height: 200px;
+        border: 1px solid #ccc;
+        padding: 10px;
+        overflow-y: scroll;
+        background-color: #f8f9fa;
+      }
+    </style>
+  </head>
+  <body class="bg-light">
+    <div class="container mt-5">
+      <h1 class="text-center mb-4">Управление дроном</h1>
+      <div class="d-flex justify-content-center mb-4">
+        <select id="droneSelect" class="form-select mx-2" aria-label="Выбор дрона">
+          <option selected disabled>Загрузка дронов...</option>
+        </select>
+      </div>
+      <h2 id="droneHeader" class="text-center mb-4">Выберите дрон</h2>
+      <div class="d-flex justify-content-center mb-4">
+        <button class="btn btn-success mx-2" onclick="sendCommand('launch')">Взлет</button>
+        <button class="btn btn-danger mx-2" onclick="sendCommand('land')">Посадка</button>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <p id="droneStatus">Статус дрона: не выбран</p>
+        </div>
+        <div class="card-body">
+          <p>Лог:</p>
+          <div id="log"></div>
+        </div>
+      </div>
+
+      <!-- Новый блок для ввода города и отображения погоды -->
+      <div class="d-flex justify-content-center mb-4">
+        <input type="text" id="cityInput" class="form-control mx-2" placeholder="Введите город" />
+        <button class="btn btn-primary mx-2" onclick="fetchWeather()">Запросить погоду</button>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <p id="weatherStatus">Информация о погоде: не запрашивалась</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let socket;
+
+      function connect() {
+        socket = new WebSocket("ws://localhost:8765");
+        socket.onopen = () => console.log("Соединение установлено");
+        socket.onmessage = (event) => updateLog(event.data);
+        socket.onclose = () => console.log("Соединение разорвано");
+      }
+
+      function sendCommand(command) {
+        const droneSelect = document.getElementById("droneSelect");
+        const selectedDrone = droneSelect.value;
+
+        if (!selectedDrone || selectedDrone === "Загрузка дронов...") {
+          alert("Пожалуйста, выберите дрон перед отправкой команды");
+          return;
+        }
+
+        const message = JSON.stringify({ command: command, serial_number: selectedDrone });
+        socket.send(message);
+        console.log("Команда отправлена:", message);
+      }
+
+      function updateLog(status) {
+        const log = document.getElementById("log");
+        const p = document.createElement("p");
+        p.textContent = status;
+        log.appendChild(p);
+      }
+
+      async function fetchDrones() {
+        try {
+          console.log("Запрос списка дронов...");
+          const response = await fetch("http://localhost:8081/drones");
+          if (!response.ok) {
+            console.error("Ошибка при получении списка дронов:", response.status);
+            return;
+          }
+          const drones = await response.json();
+          console.log("Ответ от сервера:", drones);
+
+          const droneSelect = document.getElementById("droneSelect");
+          droneSelect.innerHTML = "";  // Очищаем старые опции
+
+          if (drones.length === 0) {
+            console.warn("Список дронов пуст.");
+          } else {
+            drones.forEach((drone) => {
+              const option = document.createElement("option");
+              option.value = drone.serial_number;
+              option.textContent = drone.model;
+              droneSelect.appendChild(option);
+            });
+
+            const defaultOption = document.createElement("option");
+            defaultOption.textContent = "Выберите дрон";
+            defaultOption.disabled = true;
+            defaultOption.selected = true;
+            droneSelect.insertBefore(defaultOption, droneSelect.firstChild);
+          }
+        } catch (error) {
+          console.error("Ошибка загрузки дронов:", error);
+        }
+      }
+
+      // Функция для запроса погоды
+      async function fetchWeather() {
+        const city = document.getElementById("cityInput").value;
+        if (!city) {
+          alert("Пожалуйста, введите город");
+          return;
+        }
+
+        const apiKey = "2c1ba850e2805724a8199d265be57f12";
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${apiKey}&units=metric&lang=ru`;
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error("Ошибка при получении данных о погоде");
+          }
+          const data = await response.json();
+          displayWeather(data);
+        } catch (error) {
+          console.error("Ошибка:", error);
+          document.getElementById("weatherStatus").textContent = "Ошибка при получении погоды.";
+        }
+      }
+
+      // Функция для отображения погоды
+      function displayWeather(data) {
+        const weatherDescription = data.weather[0].description;
+        const temperature = data.main.temp;
+        const cityName = data.name;
+        document.getElementById("weatherStatus").textContent = `Погода в ${cityName}: ${weatherDescription}, температура: ${temperature}°C`;
+      }
+
+      window.onload = function () {
+        connect();
+        fetchDrones();
+      };
+    </script>
+  </body>
+</html>
